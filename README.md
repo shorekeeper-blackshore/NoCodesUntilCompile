@@ -104,13 +104,6 @@ mvn clean compile
 | `accept-unverified` | 预编译没过也采用模型最后一次输出 |
 | `output.package` / `output.class-name` | 生成类的包名与类名（默认 `com.blackshore.apt.aiMain`） |
 
-## 密钥安全
-
-仓库里**不包含任何真实 API Key**。`application.yml` 中的 `api-key`
-只写成 `${AI_APT_API_KEY:}` 占位符，实际值通过环境变量（或
-`-Dai.apt.apiKey=...` / `-Aai.apt.apiKey=...`）注入；`.env`、
-`.idea/` 等本地文件已在 `.gitignore` 中排除。
-
 ## License
 
 [GPL-3.0](LICENSE) © 2026 shorekeeper
