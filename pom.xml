@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.blackshore</groupId>
+    <artifactId>NoCodesUntilCompile</artifactId>
+    <version>1.0-SNAPSHOT</version>
+    <packaging>pom</packaging>
+
+    <!--
+        聚合 + 父工程，只做版本与插件对齐，不产出构件：
+
+          ai-apt-processor/  编译期注解处理器（调用 AI 生成代码），零第三方依赖
+          app/               宿主工程：Main + entrance 接口/注解 + application.yml，
+                             生成的 AiProgramEntrance 实现也编译在这里
+
+        处理器独立成模块的原因：javac 在编译开始前就必须拿到处理器 class 与
+        META-INF/services 注册文件，和 business 代码同模块时（Maven 两段式勉强能凑，
+        IDEA 自带构建会直接报 ServiceConfigurationError: Provider ... not found）。
+        拆开后依赖方向单一，Maven 反应堆与 IDEA 都会先构建处理器模块。
+    -->
+    <modules>
+        <module>ai-apt-processor</module>
+        <module>app</module>
+    </modules>
+
+    <properties>
+        <maven.compiler.release>21</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven-compiler-plugin.version>3.13.0</maven-compiler-plugin.version>
+    </properties>
+
+    <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <version>${maven-compiler-plugin.version}</version>
+                    <configuration>
+                        <release>${maven.compiler.release}</release>
+                        <encoding>UTF-8</encoding>
+                    </configuration>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+    </build>
+
+</project>

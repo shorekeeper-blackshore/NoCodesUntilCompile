@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.blackshore</groupId>
+        <artifactId>NoCodesUntilCompile</artifactId>
+        <version>1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>ai-apt-app</artifactId>
+    <packaging>jar</packaging>
+
+    <!--
+        宿主工程：@Entrance 标注的 Main + AiProgramEntrance 契约 + application.yml。
+        编译时 ai-apt-processor 会读取需求调用 AI，生成 AiProgramEntrance 的实现
+        （默认 com.blackshore.apt.aiMain，与 Main 反射加载的类名一致），
+        生成的源码落在 target/generated-sources/annotations 并参与本轮编译。
+    -->
+    <dependencies>
+        <!-- 只用于注解处理，不进运行时；同时保证反应堆先构建处理器 -->
+        <dependency>
+            <groupId>com.blackshore</groupId>
+            <artifactId>ai-apt-processor</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <!-- JDK 21 起需要显式打开注解处理 -->
+                    <proc>full</proc>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>com.blackshore</groupId>
+                            <artifactId>ai-apt-processor</artifactId>
+                            <version>${project.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
+                    <compilerArgs>
+                        <!-- 告诉处理器工程根在哪，用于解析 work-dir/cache-dir 与读取接口源码 -->
+                        <arg>-Aai.apt.project.dir=${project.basedir}</arg>
+                        <!-- 直接读源码目录里的配置，避免用到 target/classes 里的旧副本 -->
+                        <arg>-Aai.apt.config=${project.basedir}/src/main/resources/application.yml</arg>
+                    </compilerArgs>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

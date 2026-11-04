@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.blackshore</groupId>
+        <artifactId>NoCodesUntilCompile</artifactId>
+        <version>1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>ai-apt-processor</artifactId>
+    <packaging>jar</packaging>
+
+    <!--
+        编译期注解处理器：扫描 @Entrance，调用 AI 生成实现 AiProgramEntrance 的代码。
+
+        依赖方向只有 app -> 本模块，Maven 反应堆与 IDEA 都会先构建这里，
+        因此处理器的 class 与 META-INF/services 注册文件在 app 编译前一定就绪。
+
+        本模块只用 JDK：javax.annotation.processing / java.net.http / 自带的 JSON、YAML 解析，
+        不引入任何第三方依赖，方便被直接放进 -processorpath。
+    -->
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <!-- 处理器自身不参与注解处理 -->
+                    <proc>none</proc>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

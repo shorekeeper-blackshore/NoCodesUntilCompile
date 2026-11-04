@@ -1,0 +1,77 @@
+# =========================================================================================
+# AI APT Compiler 配置（编译期由注解处理器 com.blackshore.apt.processor.AiCodeProcessor 读取）
+#
+# - 本文件同时支持三种写法：多级缩进 YAML、点号扁平键（ai-apt.model: xxx）、properties 风格（key = value）
+# - 键名可用别名：provider/protocol、base-url/baseUrl、api-key/apiKey、prompt/task、custom-prompt/AIIprompt 等
+# - api-key 支持 ${ENV} 与 ${ENV:默认值} 占位符；环境变量 AI_APT_*、系统属性与 javac -Aai.apt.* 依次覆盖本文件
+# - 未配置有效 api-key 时不会发起 AI 调用，按 fallback 策略生成兜底实现，保证构建可用
+# =========================================================================================
+ai-apt:
+  enabled: true
+
+  # ---- 模型接入：兼容 OpenAI 与 Anthropic 两种协议 --------------------------------------
+  model:
+    # openai 或 anthropic；写 deepseek/qwen/gpt/claude 等厂商名时会自动归一到对应协议
+    provider: openai
+    base-url: https://api.deepseek.com/v1
+    # 不要在这里写死密钥！优先读环境变量 AI_APT_API_KEY，其次读同名系统属性 ${AI_APT_API_KEY}；
+    # 都没有时视为未配置，构建会走 fallback，不会发起请求。
+    # 本地使用：export AI_APT_API_KEY=sk-... 然后再 mvn clean compile
+    api-key: ${AI_APT_API_KEY:}
+    name: deepseek-chat
+    # 采样温度，留空则不传给模型
+    temperature: 0.2
+    # 单次输出的 token 上限；0 表示不下发该字段（Anthropic 协议必填，缺省会用 4096）
+    max-tokens: 8000
+    # OpenAI 新用 max_completion_tokens、旧用 max_tokens；auto 依据模型名判断
+    token-field: auto
+    # Anthropic 协议版本号（provider=anthropic 时生效）
+    anthropic-version: 2023-06-01
+    timeout-seconds: 120
+    retry:
+      max-attempts: 3
+      backoff-millis: 1000
+    # 追加自定义请求头，例如网关要求的鉴权头
+    # headers:
+    #   x-request-source: ai-apt-compiler
+
+  # ---- 生成失败/编译不通过时的自愈与兜底 -----------------------------------------------
+  repair:
+    # 把 javac 的编译诊断回喂给模型，最多修复几轮
+    enabled: true
+    rounds: 2
+  fallback: demo            # demo=内置示例实现 | stub=占位实现(运行时报错) | error=直接让编译失败
+  fail-on-error: false      # true 时任何生成失败都会中断构建
+  accept-unverified: false  # true 时预编译不过也照样写出模型的最后一次输出
+
+  # ---- 生成目标：需与 Main 反射加载的类名保持一致（留空 package 时沿用 @Entrance 所在包）----
+  output:
+    package: com.blackshore.apt
+    class-name: aiMain
+
+  # ---- 构建期产物与缓存（缓存命中不会重复调用模型）---------------------------------------
+  cache:
+    enabled: true
+    dir: target/ai-apt/cache
+    # 缓存在 target 下会随 mvn clean 失效；想跨 clean 复用，把 dir 改到工程外，
+    # 例如 dir: ${user.home}/.ai-apt/cache 或 dir: ../.ai-apt-cache
+  work-dir: target/ai-apt
+
+  # ---- 其它开关 ----------------------------------------------------------------------
+  javadoc-enabled: true     # 生成的文件头部是否写明来源、协议、校验结果
+  enforce-interface: true   # 模型忘记 implements 时自动补上
+
+  # ---- 需求描述：@Entrance(prompt = "...") 优先级高于这里 ------------------------------
+  prompt: |
+    实现一个 Hello World 程序：
+    1. 打印 "Hello, AI APT Compiler!"；
+    2. 计算 1 到 100 的累加和并打印结果；
+    3. 如果命令行传入了参数，把参数逐条打印出来。
+
+  # 完全自定义 prompt（原配置里的 AIIprompt）；留空则使用内置模板 + 上面的 prompt
+  # custom-prompt: |
+  #   你只需要输出一个 Java 文件，包名 {{PACKAGE}}，类名 {{CLASS_NAME}}，实现 {{INTERFACE}}……
+  # system-prompt: |
+  #   覆盖内置的系统提示（一般不需要动）
+  # variables:
+  #   TEAM: blackshore        # 可在 prompt 模板里用 {{TEAM}} 引用
