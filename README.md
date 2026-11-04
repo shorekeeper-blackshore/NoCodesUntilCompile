@@ -113,4 +113,6 @@ mvn clean compile
 
 ## License
 
-暂未指定许可证。若要开源，建议补充 LICENSE（如 MIT / Apache-2.0）。
+[MIT](LICENSE) © 2026 shorekeeper
+
+可自由使用、修改、分发、商用，保留版权声明即可。
