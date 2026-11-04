@@ -113,6 +113,9 @@ mvn clean compile
 
 ## License
 
-[MIT](LICENSE) © 2026 shorekeeper
+[GPL-3.0](LICENSE) © 2026 shorekeeper
 
-可自由使用、修改、分发、商用，保留版权声明即可。
+本项目以 GNU General Public License v3.0 发布（强 copyleft）：可自由使用、修改、分发，
+但**分发修改后的版本时必须同样以 GPL-3.0 开源，并保留版权声明**；软件按“原样”提供，不附带任何担保。
+
+如果需要闭源集成或更宽松的授权（例如 MIT / Apache-2.0），属于单独的商业授权，请联系作者协商。
