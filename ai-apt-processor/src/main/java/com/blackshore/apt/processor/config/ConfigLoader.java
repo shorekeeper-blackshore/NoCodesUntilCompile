@@ -16,7 +16,8 @@ import java.util.regex.Pattern;
 
 /**
  * 定位并加载 application.yml，再按「配置文件 &lt; 环境变量 &lt; -D 系统属性 &lt; javac -A 参数」
- * 的优先级合并成 {@link AiAptConfig}。
+ * 的优先级合并成 {@link AiAptConfig}。{@code @Entrance} 里写的内容（{@link AnnotationOverlay}）
+ * 只作为逐目标默认值合在这份配置之下，见 {@link AiAptConfig#withAnnotationDefaults}。
  */
 public final class ConfigLoader {
 
@@ -59,7 +60,8 @@ public final class ConfigLoader {
         if (source != null) {
             parseInto(source);
         } else {
-            log.warn("未找到 application.yml，全部使用默认配置（工作目录: %s）", projectDir);
+            // 不写 application.yml 是支持的用法（配置全部在 @Entrance / 组合注解里）
+            log.info("未找到 application.yml，使用内置默认值 + 注解配置（工作目录: %s）", projectDir);
         }
         applyEnvironment();
         applySystemProperties();
@@ -294,7 +296,7 @@ public final class ConfigLoader {
 
     // ------------------------------------------------------------------ 占位符
 
-    /** 展开 ${ENV} / ${ENV:default}，让密钥不必写死在配置文件里。 */
+    /** 把已收集的全部映射逐项展开占位符。 */
     private Map<String, String> interpolate(Map<String, String> input) {
         Map<String, String> result = new LinkedHashMap<>();
         for (Map.Entry<String, String> entry : input.entrySet()) {
@@ -303,7 +305,8 @@ public final class ConfigLoader {
         return result;
     }
 
-    private static String expand(String text) {
+    /** 展开 ${ENV} / ${ENV:default}，让密钥不必写死在配置文件或注解里；@Entrance 的覆盖层也走这里。 */
+    static String expand(String text) {
         if (text == null || text.indexOf("${") < 0) {
             return text;
         }

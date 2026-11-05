@@ -16,6 +16,8 @@ target/
 .env.local
 application-local.yml
 *.local.yml
+# 本地配置备份（可能含真实 api-key，只留在本机）
+*.bak
 
 ### Eclipse ###
 .apt_generated

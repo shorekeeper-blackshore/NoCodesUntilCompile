@@ -3,7 +3,9 @@ package com.blackshore.apt.processor.config;
 import com.blackshore.apt.processor.util.Utils;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
@@ -11,6 +13,10 @@ import java.util.TreeMap;
 /**
  * 编译期 AI 生成代码的配置。配置项一律以扁平的规范名存取（见 {@link ConfigKeys}），
  * 因此 application.yml 里既可以写成 ai-apt.model.provider，也可以写成 model.provider 或 provider。
+ *
+ * <p>优先级：环境变量 / -D / javac -A &lt; application.yml 里写下的非空值 &lt; 全部来源都没写时的内置默认值，
+ * {@code @Entrance} 里显式写出的项只作为当前目标的默认值参与最底层兜底（见 {@link #withAnnotationDefaults}），
+ * 所以改配置文件就能压住源码里的注解，不必改代码。实例本身不可变。</p>
  */
 public final class AiAptConfig {
 
@@ -52,6 +58,63 @@ public final class AiAptConfig {
         return values.get(key);
     }
 
+    /**
+     * 把 {@code @Entrance} 写出的内容当作「当前目标的默认值」合进来：只有配置文件（含环境变量、
+     * 系统属性、javac -A）没写或写为空白的项，注解值才会生效；配置文件一写就压住注解。
+     * 覆盖层为空时直接返回自身，避免无谓的对象创建。
+     */
+    public AiAptConfig withAnnotationDefaults(AnnotationOverlay overlay) {
+        if (overlay == null || overlay.isEmpty()) {
+            return this;
+        }
+        Map<String, String> mergedValues = new LinkedHashMap<>(overlay.values());
+        keepHigher(values, mergedValues);
+        Map<String, String> mergedHeaders = new LinkedHashMap<>(overlay.headers());
+        keepHigher(headers, mergedHeaders);
+        Map<String, String> mergedVariables = new LinkedHashMap<>(overlay.variables());
+        keepHigher(variables, mergedVariables);
+        return new AiAptConfig(mergedValues, mergedHeaders, mergedVariables, projectDir, configFile, configKind);
+    }
+
+    /** 高优先级来源（配置文件侧）的非空值逐键压过注解默认值。 */
+    private static void keepHigher(Map<String, String> higher, Map<String, String> target) {
+        higher.forEach((key, value) -> {
+            if (!Utils.isBlank(value)) {
+                target.put(key, value);
+            }
+        });
+    }
+
+    /**
+     * 注解写出的项里，被更高优先级来源改成了不同值的部分；用于日志说明为什么某项注解没生效。
+     * 两边值相同（例如注解写的 ${AI_APT_API_KEY} 与同名环境变量展开结果一致）就不算被压住。
+     */
+    public List<String> shadowedKeys(AnnotationOverlay overlay) {
+        List<String> shadowed = new ArrayList<>();
+        if (overlay == null || overlay.isEmpty()) {
+            return shadowed;
+        }
+        for (Map.Entry<String, String> entry : overlay.values().entrySet()) {
+            String higher = values.get(entry.getKey());
+            if (!Utils.isBlank(higher) && !higher.trim().equals(entry.getValue().trim())) {
+                shadowed.add(entry.getKey());
+            }
+        }
+        for (Map.Entry<String, String> entry : overlay.headers().entrySet()) {
+            String higher = headers.get(entry.getKey());
+            if (higher != null && !higher.equals(entry.getValue())) {
+                shadowed.add("header:" + entry.getKey());
+            }
+        }
+        for (Map.Entry<String, String> entry : overlay.variables().entrySet()) {
+            String higher = variables.get(entry.getKey());
+            if (higher != null && !higher.equals(entry.getValue())) {
+                shadowed.add("var:" + entry.getKey());
+            }
+        }
+        return shadowed;
+    }
+
     private String str(String key, String defaultValue) {
         String value = values.get(key);
         return Utils.isBlank(value) ? defaultValue : value.trim();
@@ -67,6 +130,14 @@ public final class AiAptConfig {
 
     public boolean enabled() {
         return bool(ConfigKeys.ENABLED, true);
+    }
+
+    /**
+     * 逐目标开关：对应 {@code @Entrance(enabled = false)}。
+     * 与全局 enabled 分开存取，否则配置文件里那句 enabled: true 会把源码上的单点关闭压掉。
+     */
+    public boolean targetEnabled() {
+        return bool(ConfigKeys.TARGET_ENABLED, true);
     }
 
     /** 归一化后的协议名，只会是 openai 或 anthropic。 */
@@ -99,12 +170,25 @@ public final class AiAptConfig {
         return str(ConfigKeys.MODEL, isAnthropic() ? ConfigKeys.DEFAULT_ANTHROPIC_MODEL : ConfigKeys.DEFAULT_OPENAI_MODEL);
     }
 
+    /**
+     * 思考/推理强度：只会是 auto|off|minimal|low|medium|high。
+     * auto（缺省）表示不下发任何思考相关字段，完全沿用模型自己的默认行为，所以零配置可用。
+     */
+    public String reasoningEffort() {
+        return ConfigKeys.normalizeReasoningEffort(str(ConfigKeys.REASONING_EFFORT, ConfigKeys.DEFAULT_THINKING));
+    }
+
+    /** 是否明确关掉思考（对应 @Entrance.Model(thinking = "off")）。 */
+    public boolean thinkingDisabled() {
+        return ConfigKeys.isReasoningOff(reasoningEffort());
+    }
+
     public Double temperature() {
         String value = values.get(ConfigKeys.TEMPERATURE);
         return Utils.isBlank(value) ? null : Utils.parseDouble(value, null);
     }
 
-    /** <=0 表示请求中不带 max_tokens 字段。 */
+    /** &lt;=0（默认）表示不限制输出长度：OpenAI 兼容协议不下发该字段，Anthropic 必填时由客户端给上限。 */
     public int maxTokens() {
         return integer(ConfigKeys.MAX_TOKENS, ConfigKeys.DEFAULT_MAX_TOKENS);
     }
@@ -115,6 +199,11 @@ public final class AiAptConfig {
 
     public int retryAttempts() {
         return Math.max(1, integer(ConfigKeys.RETRY_ATTEMPTS, ConfigKeys.DEFAULT_RETRY_ATTEMPTS));
+    }
+
+    /** 关闭后每个请求只发一次（对应 @Entrance.Retry(enabled = false)）。 */
+    public boolean retryEnabled() {
+        return bool(ConfigKeys.RETRY_ENABLED, true);
     }
 
     public long retryBackoffMillis() {
@@ -171,7 +260,7 @@ public final class AiAptConfig {
         };
     }
 
-    /** 需求描述，@Entrance(prompt=...) 优先，由处理器负责覆盖。 */
+    /** 需求描述：application.yml 写了就用它，没写时才用 @Entrance(value/task) 的默认值。 */
     public String prompt() {
         return str(ConfigKeys.PROMPT, "");
     }
@@ -183,6 +272,11 @@ public final class AiAptConfig {
     /** 完全自定义 prompt（对应早期配置里的 AIIprompt），为空则使用内置模板。 */
     public String customPrompt() {
         return str(ConfigKeys.CUSTOM_PROMPT, "");
+    }
+
+    /** 自定义的修复模板（@Entrance.Prompt(repair = ...)），为空则使用内置模板。 */
+    public String repairPrompt() {
+        return str(ConfigKeys.REPAIR_PROMPT, "");
     }
 
     public boolean javadocEnabled() {
@@ -246,15 +340,17 @@ public final class AiAptConfig {
         return projectDir.resolve(path).normalize();
     }
 
-    /** 用于日志的配置摘要，api-key 做脱敏。 */
+    /** 用于日志的配置摘要（api-key 脱敏）；生成目标由处理器自己输出，因为包名可能沿用被注解类所在包。 */
     public String describe() {
         StringBuilder sb = new StringBuilder();
         sb.append("protocol=").append(protocol())
                 .append(", base-url=").append(baseUrl())
                 .append(", model=").append(model())
+                .append(", thinking=").append(reasoningEffort())
+                .append(", max-tokens=").append(maxTokens() > 0 ? String.valueOf(maxTokens()) : "无限制")
                 .append(", api-key=").append(ConfigKeys.mask(apiKey()))
-                .append(", output=").append(outputPackage()).append('.').append(outputClassName())
                 .append(", repair=").append(repairEnabled()).append('/').append(repairRounds())
+                .append(", retry=").append(retryEnabled()).append('/').append(retryAttempts())
                 .append(", cache=").append(cacheEnabled())
                 .append(", fallback=").append(fallback().name().toLowerCase(Locale.ROOT))
                 .append(", config=").append(configFile == null ? "(未找到配置文件)" : configFile);

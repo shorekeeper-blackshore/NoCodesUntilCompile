@@ -17,6 +17,9 @@ import java.util.Map;
  */
 public final class AnthropicClient implements AiClient {
 
+    /** max_tokens 在本协议里必填，“不限制”时给一个宽裕的上限（与思考预算联动）。 */
+    private static final int UNLIMITED_MAX_TOKENS = 16384;
+
     private final AiAptConfig config;
     private final AptLog log;
     private final HttpTransport transport;
@@ -36,7 +39,8 @@ public final class AnthropicClient implements AiClient {
 
     @Override
     public String target() {
-        return "anthropic:" + config.model() + " @ " + url;
+        String effort = config.reasoningEffort();
+        return "anthropic:" + config.model() + ("auto".equals(effort) ? "" : "[" + effort + "]") + " @ " + url;
     }
 
     @Override
@@ -52,14 +56,29 @@ public final class AnthropicClient implements AiClient {
         Map<String, Object> payload = Json.object();
         payload.put("model", config.model());
         payload.put("messages", nodes);
-        // max_tokens 在 Anthropic 协议里是必填项
-        payload.put("max_tokens", config.maxTokens() > 0 ? config.maxTokens() : 4096);
+
+        // 思考等级→ Anthropic 的 thinking 块；开了思考时 max_tokens 必须大于预算，且 temperature 只能为 1
+        String effort = config.reasoningEffort();
+        int budget = budgetOf(effort);
+        if (config.thinkingDisabled()) {
+            payload.put("thinking", Map.of("type", "disabled"));
+        } else if (budget > 0) {
+            payload.put("thinking", Map.of("type", "enabled", "budget_tokens", budget));
+        }
+        int maxTokens = config.maxTokens() > 0 ? config.maxTokens() : UNLIMITED_MAX_TOKENS;
+        if (budget > 0 && maxTokens <= budget) {
+            maxTokens = budget + 4096;
+        }
+        // max_tokens 在 Anthropic 协议里是必填项（不配置时也满足“不限制”语义）
+        payload.put("max_tokens", maxTokens);
         if (!Utils.isBlank(systemPrompt)) {
             payload.put("system", systemPrompt);
         }
         Double temperature = config.temperature();
-        if (temperature != null) {
+        if (temperature != null && budget <= 0) {
             payload.put("temperature", temperature);
+        } else if (temperature != null) {
+            log.info("开了思考模式（%s），按协议要求不发送 temperature=%s", effort, temperature);
         }
 
         Map<String, String> headers = Map.of(
@@ -67,6 +86,17 @@ public final class AnthropicClient implements AiClient {
                 "anthropic-version", config.anthropicVersion());
         String response = transport.postJson(url, headers, Json.write(payload));
         return extractText(response);
+    }
+
+    /** 思考预算：auto/off 不下发 thinking 块（返 0），其余按强度给 tokens 预算。 */
+    private static int budgetOf(String effort) {
+        return switch (effort) {
+            case "minimal" -> 1024;
+            case "low" -> 2048;
+            case "medium" -> 8192;
+            case "high" -> 16384;
+            default -> 0;
+        };
     }
 
     private String extractText(String response) throws AiException {

@@ -53,7 +53,7 @@ public final class HttpTransport {
         merged.forEach(builder::header);
         HttpRequest request = builder.build();
 
-        int attempts = config.retryAttempts();
+        int attempts = config.retryEnabled() ? Math.max(1, config.retryAttempts()) : 1;
         String lastError = "";
         for (int attempt = 1; attempt <= attempts; attempt++) {
             try {
@@ -79,7 +79,7 @@ public final class HttpTransport {
                 sleep(Math.max(200L, config.retryBackoffMillis()) * attempt);
             }
         }
-        throw new AiException("调用 AI 接口失败（" + url + "），已重试 " + attempts + " 次，最后一次错误: " + lastError);
+        throw new AiException("调用 AI 接口失败（" + url + "），已尝试 " + attempts + " 次，最后一次错误: " + lastError);
     }
 
     private static boolean retryable(int status) {

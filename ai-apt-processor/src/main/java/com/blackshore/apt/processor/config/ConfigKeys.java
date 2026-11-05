@@ -21,7 +21,10 @@ public final class ConfigKeys {
     public static final String DEFAULT_OPENAI_MODEL = "gpt-4o-mini";
     public static final String DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-20250514";
     public static final String DEFAULT_ANTHROPIC_VERSION = "2023-06-01";
-    public static final int DEFAULT_MAX_TOKENS = 8000;
+    /** 0 = 不限制输出长度（OpenAI 兼容协议不下发该字段）；Anthropic 协议必填，无限制时给到足够大的值。 */
+    public static final int DEFAULT_MAX_TOKENS = 0;
+    /** auto = 不下发思考等级，沿用模型自己的默认行为。 */
+    public static final String DEFAULT_THINKING = "auto";
     public static final int DEFAULT_TIMEOUT_SECONDS = 120;
     public static final int DEFAULT_RETRY_ATTEMPTS = 3;
     public static final int DEFAULT_RETRY_BACKOFF_MILLIS = 1000;
@@ -31,15 +34,20 @@ public final class ConfigKeys {
 
     // 规范键名
     public static final String ENABLED = "enabled";
+    /** 逐目标开关（@Entrance(enabled = ...)），与全局 enabled 分开，避免被配置文件里那句 true 压掉。 */
+    public static final String TARGET_ENABLED = "target-enabled";
     public static final String PROVIDER = "provider";
     public static final String BASE_URL = "base-url";
     public static final String API_KEY = "api-key";
     public static final String MODEL = "model";
+    /** 思考/推理强度：auto|off|minimal|low|medium|high。 */
+    public static final String REASONING_EFFORT = "reasoning-effort";
     public static final String TEMPERATURE = "temperature";
     public static final String MAX_TOKENS = "max-tokens";
     public static final String TIMEOUT_SECONDS = "timeout-seconds";
     public static final String RETRY_ATTEMPTS = "retry-attempts";
     public static final String RETRY_BACKOFF_MILLIS = "retry-backoff-millis";
+    public static final String RETRY_ENABLED = "retry-enabled";
     public static final String REPAIR_ENABLED = "repair-enabled";
     public static final String REPAIR_ROUNDS = "repair-rounds";
     public static final String CACHE_ENABLED = "cache-enabled";
@@ -52,6 +60,7 @@ public final class ConfigKeys {
     public static final String PROMPT = "prompt";
     public static final String SYSTEM_PROMPT = "system-prompt";
     public static final String CUSTOM_PROMPT = "custom-prompt";
+    public static final String REPAIR_PROMPT = "repair-prompt";
     public static final String JAVADOC_ENABLED = "javadoc-enabled";
     public static final String ENFORCE_INTERFACE = "enforce-interface";
     public static final String ACCEPT_UNVERIFIED = "accept-unverified";
@@ -61,11 +70,11 @@ public final class ConfigKeys {
 
     /** 全部规范键，也是“哪些配置项被识别”的唯一来源。 */
     public static final List<String> CANONICAL_KEYS = List.of(
-            ENABLED, PROVIDER, BASE_URL, API_KEY, MODEL, TEMPERATURE, MAX_TOKENS, TIMEOUT_SECONDS,
-            RETRY_ATTEMPTS, RETRY_BACKOFF_MILLIS, "retry-enabled", REPAIR_ENABLED, REPAIR_ROUNDS,
+            ENABLED, TARGET_ENABLED, PROVIDER, BASE_URL, API_KEY, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS, TIMEOUT_SECONDS,
+            RETRY_ATTEMPTS, RETRY_BACKOFF_MILLIS, RETRY_ENABLED, REPAIR_ENABLED, REPAIR_ROUNDS,
             CACHE_ENABLED, CACHE_DIR, WORK_DIR, OUTPUT_PACKAGE, OUTPUT_CLASS_NAME, FAIL_ON_ERROR, FALLBACK,
-            PROMPT, SYSTEM_PROMPT, CUSTOM_PROMPT, JAVADOC_ENABLED, ENFORCE_INTERFACE, ACCEPT_UNVERIFIED,
-            TOKEN_FIELD, ANTHROPIC_VERSION, COMPILE_CLASSPATH);
+            PROMPT, SYSTEM_PROMPT, CUSTOM_PROMPT, REPAIR_PROMPT, JAVADOC_ENABLED, ENFORCE_INTERFACE,
+            ACCEPT_UNVERIFIED, TOKEN_FIELD, ANTHROPIC_VERSION, COMPILE_CLASSPATH);
 
     /** normalize(规范键) -> 规范键，让 baseUrl / base_url / base-url 三种写法等价。 */
     private static final Map<String, String> BY_NORMALIZED = new HashMap<>();
@@ -80,6 +89,10 @@ public final class ConfigKeys {
     private static final Map<String, String> LEAF_ALIASES = new HashMap<>();
 
     static {
+        // 逐目标开关：配置文件里可写成 target-enabled 或 targets.enabled / entrance.enabled
+        PATH_ALIASES.put("targets.enabled", TARGET_ENABLED);
+        PATH_ALIASES.put("entrance.enabled", TARGET_ENABLED);
+        PATH_ALIASES.put("entrances.enabled", TARGET_ENABLED);
         // 历史配置：aiAptCompiler.model.anthropic = openai / baseUrl / apiKey / model
         PATH_ALIASES.put("model.anthropic", PROVIDER);
         PATH_ALIASES.put("model.openai", PROVIDER);
@@ -89,11 +102,17 @@ public final class ConfigKeys {
         PATH_ALIASES.put("model.apikey", API_KEY);
         PATH_ALIASES.put("model.model", MODEL);
         PATH_ALIASES.put("model.name", MODEL);
+        PATH_ALIASES.put("model.thinking", REASONING_EFFORT);
+        PATH_ALIASES.put("model.think", REASONING_EFFORT);
+        PATH_ALIASES.put("model.reasoning", REASONING_EFFORT);
+        PATH_ALIASES.put("model.effort", REASONING_EFFORT);
+        PATH_ALIASES.put("thinking.effort", REASONING_EFFORT);
+        PATH_ALIASES.put("thinking.level", REASONING_EFFORT);
         PATH_ALIASES.put("retry.maxattempts", RETRY_ATTEMPTS);
         PATH_ALIASES.put("retry.attempts", RETRY_ATTEMPTS);
         PATH_ALIASES.put("retry.maxretries", RETRY_ATTEMPTS);
         PATH_ALIASES.put("retry.backoffmillis", RETRY_BACKOFF_MILLIS);
-        PATH_ALIASES.put("retry.enabled", "retry-enabled");
+        PATH_ALIASES.put("retry.enabled", RETRY_ENABLED);
         PATH_ALIASES.put("repair.enabled", REPAIR_ENABLED);
         PATH_ALIASES.put("repair.rounds", REPAIR_ROUNDS);
         PATH_ALIASES.put("repair.maxrounds", REPAIR_ROUNDS);
@@ -112,11 +131,21 @@ public final class ConfigKeys {
         PATH_ALIASES.put("prompt.task", PROMPT);
         PATH_ALIASES.put("prompt.system", SYSTEM_PROMPT);
         PATH_ALIASES.put("prompt.custom", CUSTOM_PROMPT);
+        PATH_ALIASES.put("prompt.repair", REPAIR_PROMPT);
+        PATH_ALIASES.put("prompt.requirement", PROMPT);
+        PATH_ALIASES.put("debug.javadoc", JAVADOC_ENABLED);
+        PATH_ALIASES.put("debug.enforceinterface", ENFORCE_INTERFACE);
         PATH_ALIASES.put("debug.workdir", WORK_DIR);
+        PATH_ALIASES.put("fallback.mode", FALLBACK);
+        PATH_ALIASES.put("fallback.onerror", FALLBACK);
+        PATH_ALIASES.put("fallback.failonerror", FAIL_ON_ERROR);
+        PATH_ALIASES.put("fallback.acceptunverified", ACCEPT_UNVERIFIED);
+        PATH_ALIASES.put("fallback.compileclasspath", COMPILE_CLASSPATH);
         PATH_ALIASES.put("build.workdir", WORK_DIR);
 
         LEAF_ALIASES.put("aienabled", ENABLED);
         LEAF_ALIASES.put("processorenabled", ENABLED);
+        LEAF_ALIASES.put("targetenabled", TARGET_ENABLED);
         LEAF_ALIASES.put("protocol", PROVIDER);
         LEAF_ALIASES.put("vendor", PROVIDER);
         LEAF_ALIASES.put("apistyle", PROVIDER);
@@ -136,6 +165,12 @@ public final class ConfigKeys {
         LEAF_ALIASES.put("modelname", MODEL);
         LEAF_ALIASES.put("modelid", MODEL);
         LEAF_ALIASES.put("chatmodel", MODEL);
+        LEAF_ALIASES.put("thinking", REASONING_EFFORT);
+        LEAF_ALIASES.put("think", REASONING_EFFORT);
+        LEAF_ALIASES.put("reasoning", REASONING_EFFORT);
+        LEAF_ALIASES.put("effort", REASONING_EFFORT);
+        LEAF_ALIASES.put("reasoningeffort", REASONING_EFFORT);
+        LEAF_ALIASES.put("thinkinglevel", REASONING_EFFORT);
         LEAF_ALIASES.put("maxtokens", MAX_TOKENS);
         LEAF_ALIASES.put("maxoutputtokens", MAX_TOKENS);
         LEAF_ALIASES.put("completiontokens", MAX_TOKENS);
@@ -146,6 +181,7 @@ public final class ConfigKeys {
         LEAF_ALIASES.put("retries", RETRY_ATTEMPTS);
         LEAF_ALIASES.put("retryattempts", RETRY_ATTEMPTS);
         LEAF_ALIASES.put("maxretry", RETRY_ATTEMPTS);
+        LEAF_ALIASES.put("retryenabled", RETRY_ENABLED);
         LEAF_ALIASES.put("backoff", RETRY_BACKOFF_MILLIS);
         LEAF_ALIASES.put("backoffmillis", RETRY_BACKOFF_MILLIS);
         LEAF_ALIASES.put("retrybackoffmillis", RETRY_BACKOFF_MILLIS);
@@ -164,6 +200,7 @@ public final class ConfigKeys {
         LEAF_ALIASES.put("outputdir", WORK_DIR);
         LEAF_ALIASES.put("debugdir", WORK_DIR);
         LEAF_ALIASES.put("package", OUTPUT_PACKAGE);
+        LEAF_ALIASES.put("pkg", OUTPUT_PACKAGE);
         LEAF_ALIASES.put("outputpackage", OUTPUT_PACKAGE);
         LEAF_ALIASES.put("targetpackage", OUTPUT_PACKAGE);
         LEAF_ALIASES.put("classname", OUTPUT_CLASS_NAME);
@@ -186,6 +223,9 @@ public final class ConfigKeys {
         LEAF_ALIASES.put("customprompt", CUSTOM_PROMPT);
         LEAF_ALIASES.put("rawprompt", CUSTOM_PROMPT);
         LEAF_ALIASES.put("prompttemplate", CUSTOM_PROMPT);
+        LEAF_ALIASES.put("repairprompt", REPAIR_PROMPT);
+        LEAF_ALIASES.put("fixprompt", REPAIR_PROMPT);
+        LEAF_ALIASES.put("selfhealprompt", REPAIR_PROMPT);
         LEAF_ALIASES.put("aiprompt", CUSTOM_PROMPT);
         LEAF_ALIASES.put("aiiprompt", CUSTOM_PROMPT);
         LEAF_ALIASES.put("javadoc", JAVADOC_ENABLED);
@@ -258,6 +298,59 @@ public final class ConfigKeys {
     /** 是否是已识别的规范键（未识别的项只记日志，不影响构建）。 */
     public static boolean isKnown(String canonical) {
         return CANONICAL_KEYS.contains(canonical);
+    }
+
+    /**
+     * 思考等级归一：只会产出 auto|off|minimal|low|medium|high。
+     * 无法识别的写法按 auto 处理，避免把拼错的等级直接发给接口换来一个 400。
+     */
+    public static String normalizeReasoningEffort(String value) {
+        String v = normalize(value);
+        switch (v) {
+            case "":
+            case "auto":
+            case "default":
+            case "follow":
+            case "followmodel":
+            case "modeldefault":
+                return "auto";
+            case "off":
+            case "false":
+            case "no":
+            case "none":
+            case "disable":
+            case "disabled":
+            case "withoutthinking":
+                return "off";
+            case "min":
+            case "minimal":
+                return "minimal";
+            case "low":
+            case "lite":
+            case "quick":
+                return "low";
+            case "med":
+            case "mid":
+            case "medium":
+            case "balanced":
+            case "enabled":
+            case "on":
+            case "yes":
+                return "medium";
+            case "high":
+            case "max":
+            case "deep":
+            case "strongest":
+            case "thinking":
+                return "high";
+            default:
+                return "auto";
+        }
+    }
+
+    /** 是否属于“明确关掉思考”的写法。 */
+    public static boolean isReasoningOff(String effort) {
+        return "off".equals(effort);
     }
 
     /** openai / anthropic 之外的写法（claude、gpt、deepseek、兼容网关等）在此归一。 */

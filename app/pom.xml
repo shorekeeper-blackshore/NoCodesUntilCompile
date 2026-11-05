@@ -47,8 +47,12 @@
                     <compilerArgs>
                         <!-- 告诉处理器工程根在哪，用于解析 work-dir/cache-dir 与读取接口源码 -->
                         <arg>-Aai.apt.project.dir=${project.basedir}</arg>
-                        <!-- 直接读源码目录里的配置，避免用到 target/classes 里的旧副本 -->
-                        <arg>-Aai.apt.config=${project.basedir}/src/main/resources/application.yml</arg>
+                        <!--
+                          配置全部写在 Main 类的 @Entrance 注解里，本工程默认不再放 application.yml。
+                          临时想用配置文件压住注解时，在 src/main/resources/application.yml 写几项即可
+                          （处理器会自动搜索它），或者按需加回：
+                          <arg>-Aai.apt.config=${project.basedir}/src/main/resources/application.yml</arg>
+                        -->
                     </compilerArgs>
                 </configuration>
             </plugin>

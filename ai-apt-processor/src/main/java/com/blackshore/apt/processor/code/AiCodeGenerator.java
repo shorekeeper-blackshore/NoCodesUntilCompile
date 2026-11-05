@@ -65,7 +65,7 @@ public final class AiCodeGenerator {
     }
 
     /**
-     * @param requirement 需求文本（来自 application.yml 或 @Entrance(prompt=...)）
+     * @param requirement 需求文本（来自 @Entrance.value() 或 application.yml 的 prompt）
      * @param pkg         生成的包名
      * @param className   生成的类名
      */
@@ -77,6 +77,7 @@ public final class AiCodeGenerator {
                 Utils.isBlank(config.systemPrompt()) ? PromptTemplates.SYSTEM : config.systemPrompt(), context, variables);
         String userPrompt = PromptTemplates.render(
                 Utils.isBlank(config.customPrompt()) ? PromptTemplates.USER : config.customPrompt(), context, variables);
+        String repairTemplate = Utils.isBlank(config.repairPrompt()) ? PromptTemplates.REPAIR : config.repairPrompt();
 
         String cacheKey = cacheKey(systemPrompt, userPrompt, fqn);
         saveText(workDir.resolve(className + "-prompt.txt"),
@@ -87,7 +88,7 @@ public final class AiCodeGenerator {
             return fallback(unavailableReason, requirement, pkg, className, fqn, 0);
         }
 
-        GeneratedCode cached = fromCache(cacheKey, className, fqn);
+        GeneratedCode cached = fromCache(cacheKey, className, fqn, requirement);
         if (cached != null) {
             return cached;
         }
@@ -152,7 +153,7 @@ public final class AiCodeGenerator {
             repairContext.put("ERRORS", outcome.forModel());
             repairContext.put("CODE", extracted);
             history.add(ChatMessage.assistant(raw));
-            history.add(ChatMessage.user(PromptTemplates.render(PromptTemplates.REPAIR, repairContext, variables)));
+            history.add(ChatMessage.user(PromptTemplates.render(repairTemplate, repairContext, variables)));
             log.info("把 %d 条编译诊断回喂给模型，进行第 %d 轮自愈修复", outcome.errors().size(), attempt + 2);
         }
 
@@ -179,11 +180,12 @@ public final class AiCodeGenerator {
 
     private String cacheKey(String systemPrompt, String userPrompt, String fqn) {
         return Utils.sha256(String.join("\u0001",
-                config.protocol(), config.baseUrl(), config.model(), String.valueOf(config.temperature()),
+                config.protocol(), config.baseUrl(), config.model(), config.reasoningEffort(),
+                String.valueOf(config.temperature()),
                 String.valueOf(config.maxTokens()), systemPrompt, userPrompt, fqn, release));
     }
 
-    private GeneratedCode fromCache(String cacheKey, String className, String fqn) {
+    private GeneratedCode fromCache(String cacheKey, String className, String fqn, String requirement) {
         if (!config.cacheEnabled()) {
             return null;
         }
@@ -202,7 +204,7 @@ public final class AiCodeGenerator {
             List<String> notes = new ArrayList<>(List.of("命中构建缓存: " + file.getFileName()));
             log.info("命中构建缓存，跳过 AI 调用: %s", file.getFileName());
             return new GeneratedCode(fqn, decorate(body, GeneratedCode.Origin.CACHE, outcome.checked(), 0, notes,
-                    config.prompt(), cacheKey), GeneratedCode.Origin.CACHE, outcome.checked(), 0, notes, cacheKey);
+                    requirement, cacheKey), GeneratedCode.Origin.CACHE, outcome.checked(), 0, notes, cacheKey);
         } catch (IOException | RuntimeException e) {
             log.warn("读取缓存失败: %s (%s)", file, e.getMessage());
             return null;
@@ -229,7 +231,8 @@ public final class AiCodeGenerator {
 
     private GeneratedCode fallback(String reason, String requirement, String pkg, String className, String fqn, int calls)
             throws GenerationException {
-        String fullReason = reason + "（协议=" + config.protocol() + "，模型=" + config.model() + "）";
+        String fullReason = reason + "（协议=" + config.protocol() + "，模型=" + config.model()
+                + "，思考=" + config.reasoningEffort() + "）";
         if (config.fallback() == AiAptConfig.Fallback.ERROR || config.failOnError()) {
             throw new GenerationException(fullReason);
         }
@@ -260,6 +263,8 @@ public final class AiCodeGenerator {
         sb.append(" * 来源  : ").append(origin.name()).append("（")
                 .append(PromptTemplates.brief(reasonOf(origin))).append("）\n");
         sb.append(" * 协议  : ").append(config.protocol()).append("  模型: ").append(config.model())
+                .append("  思考: ").append(config.reasoningEffort())
+                .append("  输出上限: ").append(config.maxTokens() > 0 ? config.maxTokens() : "不限制")
                 .append("  端点: ").append(config.baseUrl()).append('\n');
         sb.append(" * 校验  : ").append(verified ? "通过（内存预编译）" : "未通过或未执行").append("  AI 请求次数: ").append(calls).append('\n');
         sb.append(" * 指纹  : ").append(fingerprint(cacheKey)).append('\n');
@@ -267,7 +272,7 @@ public final class AiCodeGenerator {
             sb.append(" * 修正  : ").append(note).append('\n');
         }
         sb.append(" * 生成于: ").append(LocalDateTime.now()).append('\n');
-        sb.append(" * 重新生成: 修改 application.yml 的 prompt 后执行 mvn clean compile（增量构建可能不会重新触发注解处理）。\n");
+        sb.append(" * 重新生成: 修改 application.yml 的 prompt（或把它留空后改 @Entrance 的需求）后执行 mvn clean compile（增量构建可能不会重新触发注解处理）。\n");
         sb.append(" */\n\n");
         return sb + GeneratedCode.stripHeader(body.stripLeading());
     }

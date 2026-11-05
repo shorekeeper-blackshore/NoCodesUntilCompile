@@ -35,7 +35,8 @@ public final class OpenAiClient implements AiClient {
 
     @Override
     public String target() {
-        return "openai:" + config.model() + " @ " + url;
+        String effort = config.reasoningEffort();
+        return "openai:" + config.model() + ("auto".equals(effort) ? "" : "[" + effort + "]") + " @ " + url;
     }
 
     @Override
@@ -55,6 +56,14 @@ public final class OpenAiClient implements AiClient {
         Double temperature = config.temperature();
         if (temperature != null) {
             payload.put("temperature", temperature);
+        }
+        // 思考等级：auto 什么都不发（沿用模型默认）；具体强度用 reasoning_effort；
+        // 关掉思考用混合思考模型认的 thinking.type，两者都不认的网关不会因为 auto 而报错
+        String effort = config.reasoningEffort();
+        if (config.thinkingDisabled()) {
+            payload.put("thinking", Map.of("type", "disabled"));
+        } else if (!"auto".equals(effort)) {
+            payload.put("reasoning_effort", effort);
         }
         if (config.maxTokens() > 0) {
             payload.put(tokenField(), config.maxTokens());
