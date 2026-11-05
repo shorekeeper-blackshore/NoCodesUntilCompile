@@ -40,7 +40,8 @@ public final class BuiltInSnippets {
                             System.out.println("命令行参数: " + Arrays.toString(args));
                         }
                         System.out.println("本次未调用 AI（%s），期望需求是: %s");
-                        System.out.println("配置好 application.yml 里的 api-key / provider 后重新编译即可获得 AI 生成的实现。");
+                        System.out.println("在 @Entrance(model = @Model(apiKey = ...)) 或 application.yml 里配好 api-key / provider，"
+                                + "再 mvn clean compile 即可获得 AI 生成的实现。");
                     }
                 }
                 """.formatted(pkg, AiAptConfig.ENTRANCE_INTERFACE, commentBlock(reason), className,

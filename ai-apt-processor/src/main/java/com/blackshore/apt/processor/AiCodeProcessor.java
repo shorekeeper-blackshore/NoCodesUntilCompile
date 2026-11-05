@@ -3,6 +3,7 @@ package com.blackshore.apt.processor;
 import com.blackshore.apt.processor.code.AiCodeGenerator;
 import com.blackshore.apt.processor.code.BuiltInSnippets;
 import com.blackshore.apt.processor.code.GeneratedCode;
+import com.blackshore.apt.processor.code.SourceFile;
 import com.blackshore.apt.processor.config.AiAptConfig;
 import com.blackshore.apt.processor.config.AnnotationOverlay;
 import com.blackshore.apt.processor.config.ConfigKeys;
@@ -30,7 +31,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * 编译期注解处理器：扫描 {@code @Entrance}，把需求交给 AI 生成一个实现
+ * 编译期注解处理器：扫描 {@code @Entrance}，把需求交给 AI 生成实现
  * {@link AiAptConfig#ENTRANCE_INTERFACE} 的类，并用 Filer 写回本次编译。
  *
  * <p>配置以 application.yml 为准：每个目标上 {@code @Entrance} 里显式写出的项（见
@@ -40,6 +41,12 @@ import java.util.Set;
  * <p>{@code @Entrance} 也可以写在自定义注解上当组合注解用（类上只写 {@code @AiApp} 一行），
  * 直接写在类上的配置优先于继承来的。</p>
  *
+ * <p>输出默认可以不止一个文件（{@code output.multi-file}，缺省开），也不止一层包
+ * （{@code output.sub-packages}，缺省开，子包最深 2 级）：模型可以一次给出入口类文件加若干子包里的辅助类文件，
+ * 入口类永远住在目标包（运行期反射加载的位置），辅助类按职责住进目标包之下的子包。
+ * 它们一起预编译校验、由 {@link AiCodeGenerator.NameGuard} 逐个查类型名与包名是否已被工程占用，
+ * 最后全部写回本次编译。</p>
+ *
  * <p>处理器只依赖 JDK（javax.annotation.processing / java.net.http / 自带的 JSON 与 YAML 解析），
  * 因此可以被单独放进 {@code -processorpath}。</p>
  */
@@ -47,6 +54,8 @@ import java.util.Set;
 public final class AiCodeProcessor extends AbstractProcessor {
 
     private final Set<String> generatedTypes = new LinkedHashSet<>();
+    /** 本次编译里由我们新建的包；辅助文件只能住在目标包子树里，不能往工程已有的包里插。 */
+    private final Set<String> generatedPackages = new LinkedHashSet<>();
     private AptLog log;
     private AiAptConfig config;
     private String release;
@@ -192,12 +201,18 @@ public final class AiCodeProcessor extends AbstractProcessor {
 
         long start = System.currentTimeMillis();
         try {
-            AiCodeGenerator generator = new AiCodeGenerator(effective, log, release);
+            AiCodeGenerator generator = new AiCodeGenerator(effective, log, release,
+                    generated -> nameConflict(generated, pkg));
             GeneratedCode code = generator.generate(requirement, pkg, className);
-            write(fqn, code.source(), target);
-            log(Diagnostic.Kind.NOTE, String.format("已生成 %s（%s，预编译校验=%s，AI 请求 %d 次，耗时 %d ms）",
-                    fqn, code.originLabel(), code.verified() ? "通过" : "未通过", code.aiCalls(),
+            writeAll(code, target);
+            log(Diagnostic.Kind.NOTE, String.format("已生成 %d 个文件，入口 %s（%s，预编译校验=%s，AI 请求 %d 次，耗时 %d ms）",
+                    code.fileCount(), fqn, code.originLabel(), code.verified() ? "通过" : "未通过", code.aiCalls(),
                     System.currentTimeMillis() - start));
+            if (code.fileCount() > 1) {
+                log(Diagnostic.Kind.NOTE, "包结构: " + code.structure());
+            }
+        } catch (WriteException e) {
+            error(e.getMessage());
         } catch (AiCodeGenerator.GenerationException e) {
             error("生成 " + fqn + " 失败: " + e.getMessage()
                     + "；可调整 application.yml（或 @Entrance(model = @Model(...))）的 api-key/provider，"
@@ -208,6 +223,50 @@ public final class AiCodeProcessor extends AbstractProcessor {
             log(Diagnostic.Kind.WARNING, "生成 " + fqn + " 失败: " + e);
             writeFallback(effective, pkg, className, fqn, target, e.toString(), requirement);
         }
+    }
+
+    /**
+     * 入口文件排在第一个，辅助文件紧随其后；任何一个文件写不下去都必须报错，
+     * 否则入口会引用不到辅助类。写成功的名字全部占位，后面的 @Entrance 不能再生成同名类型。
+     */
+    private void writeAll(GeneratedCode code, Element target) throws IOException, WriteException {
+        for (SourceFile file : code.files()) {
+            try {
+                write(file.fqn(), file.source(), target);
+            } catch (FilerException e) {
+                throw new WriteException("写入 " + file.pathName() + " 失败，目标 " + file.fqn()
+                        + " 在本次编译里已经被占用：请换个辅助类型名或子包名（都不能与工程已有的类型/包重名），"
+                        + "也可以把 output.multi-file 设为 false 只生成入口类");
+            }
+            generatedTypes.add(file.fqn());
+            generatedPackages.add(file.packageName());
+        }
+    }
+
+    /** 生成好的文件写不回编译（通常是类型名与已有类撞车），需要让构建明明白白地失败。 */
+    private static final class WriteException extends IOException {
+        WriteException(String message) {
+            super(message);
+        }
+    }
+
+    /**
+     * 生成文件能不能落到这个全限定名上：类型名不能与工程已有的类（含本次待编译的源码）撞车；
+     * 子包也必须是新建的，不能把生成代码塞进工程已有的包里，否则事后很难分清谁写的。
+     * 入口类自己不受子包规则约束（它永远住在目标包）。
+     */
+    private String nameConflict(String fqn, String rootPkg) {
+        if (generatedTypes.contains(fqn)) {
+            return "与本次编译中另一个生成目标同名";
+        }
+        int index = fqn.lastIndexOf('.');
+        String pkg = index < 0 ? "" : fqn.substring(0, index);
+        if (!pkg.equals(rootPkg) && !generatedPackages.contains(pkg)
+                && processingEnv.getElementUtils().getPackageElement(pkg) != null) {
+            return "包 " + pkg + " 已经存在于工程里，请换个新的子包名（子包必须开在 " + rootPkg + " 之下）";
+        }
+        TypeElement existing = processingEnv.getElementUtils().getTypeElement(fqn);
+        return existing == null ? null : "工程里已经存在 " + fqn;
     }
 
     private void writeFallback(AiAptConfig effective, String pkg, String className, String fqn, Element target,

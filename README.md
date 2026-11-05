@@ -13,7 +13,7 @@
 @Entrance Main ──> AiCodeProcessor（编译期）
                         │  1. 读 @Entrance（逐目标默认值）+ application.yml（可选）/ -A 参数 / 环境变量
                         │  2. 组 prompt → 调用模型（带缓存）
-                        │  3. 抽取 java 代码块，补包名/类名/implements
+                        │  3. 抽取 java 代码块（可多文件、可子包），补包名/类名/implements
                         │  4. 内存内预编译（JavaCompiler）
                         │  5. 有错就把诊断回喂模型，最多 N 轮自愈
                         │  6. 失败按 fallback 兜底，构建不中断
@@ -40,6 +40,7 @@ NoCodesUntilCompile/
 │       └── prompt/                    system/user/repair 提示模板
 ├── app/                  宿主工程：Main、@Entrance、AiApt、AiProgramEntrance
 ├── tools/StubServer.java 本地桩服务（不参与构建），无真实 key 时联调整条链路
+├── tools/ExtractorCheck.java 多文件/子包切块的边界用例（不参与构建，可直接 java 单文件运行）
 └── pom.xml               聚合 + 父工程，统一 JDK 21 与插件版本
 ```
 
@@ -113,6 +114,45 @@ public class Main {
 
 > `@Entrance` 是 `SOURCE` 保留级，组合注解必须与宿主类在**同一次编译**里，打进独立 jar 给别人用读不到配置。
 
+### 一次生成多个文件、多个包
+
+需求一复杂（实体 + 服务 + 入口），单文件就很难写清楚。处理器默认允许模型一次给出**多个 `.java` 文件**，
+并且允许辅助类型按职责住进目标包之下的**子包**：
+
+```java
+@Entrance(
+        value = {"做一个图书借阅演示", "模型放 model、业务放 service，入口类留在本包"},
+        output = @Entrance.Output(
+                multiFile = true,       // 缺省 true：允许入口类 + 辅助类一起输出
+                maxFiles = 5,           // 缺省 5：含入口文件在内最多几个文件
+                subPackages = true,     // 缺省 true：允许 pkg.model / pkg.service 这类子包
+                subPackageDepth = 2))   // 缺省 2：目标包之下最多几级子包
+public class Main {}
+```
+
+生成出来的样子（全部参与本次编译，运行期仍然只反射加载入口类）：
+
+```text
+app/target/generated-sources/annotations/com/blackshore/apt/
+├── aiMain.java                         package com.blackshore.apt          ← 入口类，永远钉在目标包
+├── model/Book.java                     package com.blackshore.apt.model    ← 数据模型
+└── service/LibraryService.java         package com.blackshore.apt.service  ← 业务逻辑
+```
+
+几条硬约束（都由处理器兜底，模型写错不会弄坏构建）：
+
+- **入口类不会被挪进子包**：它必须落在 `@Entrance(pkg = …)`（默认是有注解的那个类所在的包），
+  否则运行期 `AiApt.run` 反射不到它；模型把它写进子包时会被改写回来。
+- **子包只能开在目标包之下**，且不超过 `sub-package-depth` 级；写到别的包（包括工程里已有的包）会被拉回目标包。
+- **不往已有的包/类里插代码**：辅助类撞上工程里已存在的类型或包时，原因会回喂给模型要求改名，
+  自愈轮数用完仍不行才按 `fallback` 兜底（构建不中断）。
+- **一起校验、一起写回**：所有文件作为一个编译单元集合交给 `javac` 内存预编译，
+  诊断里带的是 `com/x/model/Book.java:12:5 …` 这种路径，模型能直接定位是哪个文件哪一行。
+- **模块声明（`module-info`）一律拒绝**，避免一个文件弄坏整轮编译。
+
+关掉多文件就退回历史行为：`output = @Entrance.Output(multiFile = false)`（等价于配置 `output.multi-file: false`），
+此时只认一个编译单元；`subPackages = false` 则所有文件平铺在目标包。
+
 ### 配置文件仍然可用（优先级更高）
 
 `application.yml` 是可选的；一旦写了某项，就压住注解里的同名项——适合临时换模型 / 换 key 做对比，不用改源码。
@@ -159,6 +199,10 @@ mvn clean compile
 | `cache.enabled` / `cache.dir` | `@Entrance.Cache` | 按 prompt + 配置指纹缓存生成结果，命中不重复计费（默认在 `target/` 下，随 clean 失效） |
 | `accept-unverified` | `@Entrance.Fallback(acceptUnverified = true)` | 预编译没过也采用模型最后一次输出 |
 | `pkg` / `className` | `@Entrance(pkg = …, className = …)` 或 `@Entrance.Output` | 生成类的包名与类名（默认被注解类所在包 + `aiMain`） |
+| `output.multi-file` | `@Entrance(output = @Entrance.Output(multiFile = false))` | 是否允许一次输出多个 `.java` 文件（入口类 + 辅助类），默认开 |
+| `output.max-files` | `@Entrance.Output(maxFiles = 8)` | 一次生成的文件数上限（含入口文件），默认 5；超出会要求模型合并 |
+| `output.sub-packages` | `@Entrance.Output(subPackages = false)` | 是否允许辅助类住进目标包之下的子包（`pkg.model` / `pkg.service`），默认开 |
+| `output.sub-package-depth` | `@Entrance.Output(subPackageDepth = 1)` | 目标包之下最多几级子包，默认 2；写 0 等于关掉子包 |
 
 ## License
 

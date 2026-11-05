@@ -17,26 +17,30 @@ import com.blackshore.apt.entrance.Entrance;
  *   <li>自愈与兜底：repair=开/2 轮、retry=开/3 次/退避 1000ms、cache=开/{@code target/ai-apt/cache}、
  *       fallback=demo、fail-on-error=关、accept-unverified=关</li>
  *   <li>构建产物：javadoc 头部=开、enforce-interface=开、work-dir={@code target/ai-apt}</li>
+ *   <li>输出形态：multi-file=开（AI 可以一次给出入口类 + 辅助类的多个 .java 文件，上限 5 个），
+ *       sub-packages=开（辅助类可以按职责住进 {@code com.blackshore.apt.model} / {@code .service} / {@code .util}
+ *       这样的子包，最深 2 级；越界、撞已有包或撞已有类都会被拦下并回喂模型改名，仍不行才走兜底），
+ *       运行期仍然只加载入口类 aiMain（它始终直接住在本包，不会被挪进子包）</li>
  * </ul>
  *
  * <p>本工程不再放 application.yml（原值备份在 {@code src/main/resources/application.yml.bak}）；
  * 一旦该文件写上某一项就会压住这里的注解，适合临时换模型/换 key 做对比而不改源码。</p>
  *
- * <p>api-key 目前是明文写在注解里；不想落源码就改成 {@code apiKey = "${AI_APT_API_KEY}"}
- * 并设置同名环境变量（环境变量 {@code AI_APT_*} 会被处理器直接读取）。拿不到有效 key 时不会发起
- * AI 调用，按 fallback=demo 写兜底实现，构建照常通过。</p>
+ * <p>api-key 走占位符 {@code "${AI_APT_API_KEY}"}：密钥只放在环境变量里，不进源码（仓库是公开的）。
+ * 想临时换 key / 换模型又不想动源码，就写 {@code app/src/main/resources/application.yml}（它会压住注解）。
+ * 拿不到有效 key 时不会发起 AI 调用，按 fallback=demo 写兜底实现，构建照常通过。</p>
  */
 @Entrance(
         value = {
-                "实现一个 Hello World 程序：",
-                "1. 打印 \"Hello, AI APT Compiler! 注解版\"；",
-                "2. 计算 1 到 200 的累加和并打印结果；",
-                "3. 如果命令行传入了参数，把参数逐条打印出来。"
+                "实现一个简单面向对象程序：",
+                "1. 抽象人类，学生类、老师类继承自人类；",
+                "2. 数据模型放 model 子包、对象创建与打印逻辑放 service 子包，入口类留在本包；",
+                "3. 创建 2 个对象并打印对象信息。"
         },
         model = @Entrance.Model(
                 value = "deepseek-flash",                       // 模型名必须服务端支持，写错会返回 HTTP 400
                 baseUrl = "https://api.deepseek.com/v1",        // 也可只写域名，处理器会自动补 /v1
-                apiKey = "", // 或 "${AI_APT_API_KEY}" 走环境变量
+                apiKey = "${AI_APT_API_KEY}",                   // 密钥走环境变量；也可直接写（不推荐，仓库公开）
                 thinking = "auto",
                 temperature = 0.2)                              // 留空则不下发该字段
 )

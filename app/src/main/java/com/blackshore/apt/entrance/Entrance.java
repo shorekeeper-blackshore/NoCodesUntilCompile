@@ -21,7 +21,8 @@ import java.lang.annotation.Target;
  * 未写的项全部走内置默认值；删掉 application.yml 也一样可用（api-key 可以从环境变量
  * {@code AI_APT_API_KEY} 提供）。内置默认值包括：provider=openai、max-tokens=不限制、
  * thinking=auto（不下发思考字段）、temperature=不下发、repair=开/2 轮、retry=开/3 次、cache=开、
- * fallback=demo、输出类名 aiMain（包名沿用被注解类所在包）。</p>
+ * fallback=demo、输出类名 aiMain（包名沿用被注解类所在包）、multi-file=开（最多 5 个文件）、
+ * sub-packages=开（子包最多 2 级）。</p>
  *
  * <p><b>可以直接写</b>：需求就是 {@link #value()}，多行需求写成字符串数组，每个元素一行
  * （与其它成员同时书写时必须写成 {@code value = ...}，这是 Java 语法限制）；
@@ -70,7 +71,11 @@ import java.lang.annotation.Target;
  *
  * <p>生成的类默认为 {@code 被注解类所在包.aiMain}，与 {@code Main} 反射加载的名字一致，
  * 可通过 {@link #pkg()} / {@link #className()} 或 {@link Output} 调整（application.yml 写了
- * output.package / output.class-name 时依旧以它为准）。</p>
+ * output.package / output.class-name 时依旧以它为准）。{@link Output#multiFile()} 缺省开着，
+ * 需求复杂时 AI 可以一次给出入口类加若干辅助类的<b>多个</b> .java 文件；{@link Output#subPackages()}
+ * 同样缺省开着，辅助类可以按职责住进目标包之下的<b>子包</b>（如 {@code pkg.model} / {@code pkg.service}）。
+ * 两者一起预编译校验后一起写回本次构建，运行期仍然只加载入口类（它始终钉在 {@link #pkg()}，
+ * 不会被挪进子包）。</p>
  *
  * <p>配置项已全部能在注解里写：{@link Model}（含思考等级）、{@link Prompt}（需求/系统/自定义/修复/变量）、
  * {@link Repair}、{@link Retry}、{@link Cache}、{@link Output}、{@link Fallback}、{@link Debug}；
@@ -242,14 +247,33 @@ public @interface Entrance {
         String dir() default "";
     }
 
-    /** 生成目标：包名与类名，需要与运行期反射加载的类名保持一致。 */
+    /** 生成目标：包名与类名，以及一次可以写几个文件、能不能建子包。 */
     @interface Output {
 
-        /** 包名；留空则沿用被注解类所在包。 */
+        /** 包名；留空则沿用被注解类所在包。生成的子包只能开在这个包之下。 */
         String pkg() default "";
 
         /** 简单类名。 */
         String className() default "";
+
+        /**
+         * 是否允许 AI 一次输出多个 .java 文件（入口类 + 辅助类），缺省开。
+         * 关掉后就只认一个编译单元；辅助类与工程里已有的类重名时，处理器会把原因回喂给模型改名。
+         */
+        boolean multiFile() default true;
+
+        /** 一次最多输出几个文件（含入口文件），超出就会要求模型合并后重出。 */
+        int maxFiles() default 5;
+
+        /**
+         * 是否允许 AI 在目标包之下创建子包（推荐 {@code pkg.model} / {@code pkg.service} / {@code pkg.util}），缺省开。
+         * 子包始终限在目标包的子树里：写到目标包之外（含工程已有的其它包）会被拉回目标包；
+         * 入口类任何时候都直接写在目标包下，不会跟着进子包。关掉后所有文件平铺在目标包。
+         */
+        boolean subPackages() default true;
+
+        /** 目标包之下最多几级子包（如 {@code pkg.model.Order} 是 1 级，{@code pkg.a.b.C} 是 2 级），写 0 等于关掉子包。 */
+        int subPackageDepth() default 2;
     }
 
     /** 生成或预编译失败时的兜底策略。 */

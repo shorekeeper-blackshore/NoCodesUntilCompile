@@ -20,7 +20,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 用 JDK 自带的 javac 在内存里预校验 AI 生成的代码。
+ * 用 JDK 自带的 javac 在内存里预校验 AI 生成的代码（支持一次校验多个文件）。
  *
  * <p>这样做的意义：AI 产出的编译错误在写进 Filer 之前就能拿到诊断，从而把错误回喂给模型自愈，
  * 而不是让整个构建挂掉。</p>
@@ -73,7 +73,12 @@ public final class CompileValidator {
         this.compiler = ToolProvider.getSystemJavaCompiler();
     }
 
-    public Outcome validate(String simpleClassName, String source) {
+    /**
+     * 一次校验多个编译单元（多文件生成时它们必须放在一起编译，否则互相引用的符号找不到）。
+     *
+     * @param files 待校验的文件，入口文件与辅助文件都会连同入口接口一起交给 javac
+     */
+    public Outcome validate(List<SourceFile> files) {
         if (compiler == null) {
             return Outcome.skipped("运行当前构建的 JVM 中没有 javac（可能是 JRE），已跳过生成代码的预编译校验");
         }
@@ -86,7 +91,10 @@ public final class CompileValidator {
         }
 
         List<JavaFileObject> units = new ArrayList<>();
-        units.add(new InMemorySource(simpleClassName + ".java", source));
+        for (SourceFile file : files) {
+            // 用包路径当内存文件名：子包里可能有同名类型，只靠简单文件名会让两个文件撞在一起
+            units.add(new InMemorySource(file.pathName(), file.source()));
+        }
         units.add(new InMemorySource(Utils.simpleName(interfaceFqn) + ".java", interfaceSource()));
 
         List<String> options = new ArrayList<>(List.of(
@@ -127,13 +135,17 @@ public final class CompileValidator {
         }
     }
 
-    /** 只保留文件名，让回喂给模型的诊断更短。 */
+    /** 只保留包路径形式的文件名（com/x/Order.java），既短又能区分不同子包里的同名类型。 */
     private static String sourceName(Diagnostic<? extends JavaFileObject> diagnostic) {
         JavaFileObject source = diagnostic.getSource();
         if (source == null) {
             return "<unknown>";
         }
         String name = source.getName().replace('\\', '/');
+        int marker = name.indexOf("ai-apt/");
+        if (marker >= 0) {
+            return name.substring(marker + "ai-apt/".length());
+        }
         int index = name.lastIndexOf('/');
         return index < 0 ? name : name.substring(index + 1);
     }

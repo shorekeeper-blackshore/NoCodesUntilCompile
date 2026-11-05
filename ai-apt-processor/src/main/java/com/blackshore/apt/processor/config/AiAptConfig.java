@@ -247,6 +247,32 @@ public final class AiAptConfig {
         return str(ConfigKeys.OUTPUT_CLASS_NAME, ConfigKeys.DEFAULT_CLASS_NAME);
     }
 
+    /**
+     * 是否允许 AI 一次输出多个 .java 文件（入口类 + 若干辅助类），缺省允许。
+     * 关掉后就回到「只认一个编译单元」的老行为：模型多给的文件会被忽略并触发自愈提示。
+     */
+    public boolean multiFileEnabled() {
+        return bool(ConfigKeys.MULTI_FILE, true);
+    }
+
+    /** 一次生成允许写出的文件数上限（含入口文件）；超出的输出会被判为不合格并回喂给模型。 */
+    public int maxGeneratedFiles() {
+        return Math.max(1, integer(ConfigKeys.MAX_FILES, ConfigKeys.DEFAULT_MAX_FILES));
+    }
+
+    /**
+     * 是否允许 AI 在目标包之下创建子包（如 pkg.model / pkg.service），缺省允许。
+     * 子包始终只能开在目标包的子树里；关掉它就回到“所有文件都平铺在目标包”。
+     */
+    public boolean subPackagesEnabled() {
+        return bool(ConfigKeys.SUB_PACKAGES, true);
+    }
+
+    /** 目标包之下最多几级子包（不含目标包本身）；写成 0 等于关掉子包。 */
+    public int subPackageDepth() {
+        return Math.max(0, integer(ConfigKeys.SUB_PACKAGE_DEPTH, ConfigKeys.DEFAULT_SUB_PACKAGE_DEPTH));
+    }
+
     public boolean failOnError() {
         return bool(ConfigKeys.FAIL_ON_ERROR, false);
     }
@@ -352,6 +378,8 @@ public final class AiAptConfig {
                 .append(", repair=").append(repairEnabled()).append('/').append(repairRounds())
                 .append(", retry=").append(retryEnabled()).append('/').append(retryAttempts())
                 .append(", cache=").append(cacheEnabled())
+                .append(", files=").append(multiFileEnabled() ? "multi≤" + maxGeneratedFiles() : "single")
+                .append(", sub-package=").append(subPackagesEnabled() ? "≤" + subPackageDepth() + "级" : "关")
                 .append(", fallback=").append(fallback().name().toLowerCase(Locale.ROOT))
                 .append(", config=").append(configFile == null ? "(未找到配置文件)" : configFile);
         return sb.toString();

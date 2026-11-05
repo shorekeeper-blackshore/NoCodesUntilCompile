@@ -29,6 +29,10 @@ public final class ConfigKeys {
     public static final int DEFAULT_RETRY_ATTEMPTS = 3;
     public static final int DEFAULT_RETRY_BACKOFF_MILLIS = 1000;
     public static final int DEFAULT_REPAIR_ROUNDS = 2;
+    /** 多文件输出时允许的文件数上限（含入口文件）。 */
+    public static final int DEFAULT_MAX_FILES = 5;
+    /** 目标包之下允许几级子包（不含目标包本身）。 */
+    public static final int DEFAULT_SUB_PACKAGE_DEPTH = 2;
     public static final String DEFAULT_WORK_DIR = "target/ai-apt";
     public static final String DEFAULT_CACHE_DIR = "target/ai-apt/cache";
 
@@ -55,6 +59,14 @@ public final class ConfigKeys {
     public static final String WORK_DIR = "work-dir";
     public static final String OUTPUT_PACKAGE = "output-package";
     public static final String OUTPUT_CLASS_NAME = "output-class-name";
+    /** 是否允许 AI 一次输出多个 .java 文件（入口类 + 辅助类）。 */
+    public static final String MULTI_FILE = "multi-file";
+    /** 一次生成允许写出的文件数上限（含入口文件），超出就要求模型合并。 */
+    public static final String MAX_FILES = "max-files";
+    /** 是否允许 AI 在目标包之下创建子包（如 pkg.model / pkg.service）。 */
+    public static final String SUB_PACKAGES = "sub-packages";
+    /** 目标包之下的子包层级上限，超出就把文件拉回目标包。 */
+    public static final String SUB_PACKAGE_DEPTH = "sub-package-depth";
     public static final String FAIL_ON_ERROR = "fail-on-error";
     public static final String FALLBACK = "fallback";
     public static final String PROMPT = "prompt";
@@ -72,7 +84,8 @@ public final class ConfigKeys {
     public static final List<String> CANONICAL_KEYS = List.of(
             ENABLED, TARGET_ENABLED, PROVIDER, BASE_URL, API_KEY, MODEL, REASONING_EFFORT, TEMPERATURE, MAX_TOKENS, TIMEOUT_SECONDS,
             RETRY_ATTEMPTS, RETRY_BACKOFF_MILLIS, RETRY_ENABLED, REPAIR_ENABLED, REPAIR_ROUNDS,
-            CACHE_ENABLED, CACHE_DIR, WORK_DIR, OUTPUT_PACKAGE, OUTPUT_CLASS_NAME, FAIL_ON_ERROR, FALLBACK,
+            CACHE_ENABLED, CACHE_DIR, WORK_DIR, OUTPUT_PACKAGE, OUTPUT_CLASS_NAME, MULTI_FILE, MAX_FILES,
+            SUB_PACKAGES, SUB_PACKAGE_DEPTH, FAIL_ON_ERROR, FALLBACK,
             PROMPT, SYSTEM_PROMPT, CUSTOM_PROMPT, REPAIR_PROMPT, JAVADOC_ENABLED, ENFORCE_INTERFACE,
             ACCEPT_UNVERIFIED, TOKEN_FIELD, ANTHROPIC_VERSION, COMPILE_CLASSPATH);
 
@@ -127,6 +140,17 @@ public final class ConfigKeys {
         PATH_ALIASES.put("output.classname", OUTPUT_CLASS_NAME);
         PATH_ALIASES.put("output.name", OUTPUT_CLASS_NAME);
         PATH_ALIASES.put("output.mainclass", OUTPUT_CLASS_NAME);
+        PATH_ALIASES.put("output.multifile", MULTI_FILE);
+        PATH_ALIASES.put("output.maxfiles", MAX_FILES);
+        PATH_ALIASES.put("output.filelimit", MAX_FILES);
+        PATH_ALIASES.put("multifile.enabled", MULTI_FILE);
+        PATH_ALIASES.put("multifile.max", MAX_FILES);
+        PATH_ALIASES.put("multifile.maxfiles", MAX_FILES);
+        PATH_ALIASES.put("output.subpackages", SUB_PACKAGES);
+        PATH_ALIASES.put("output.subpackagedepth", SUB_PACKAGE_DEPTH);
+        PATH_ALIASES.put("output.depth", SUB_PACKAGE_DEPTH);
+        PATH_ALIASES.put("subpackages.enabled", SUB_PACKAGES);
+        PATH_ALIASES.put("subpackages.depth", SUB_PACKAGE_DEPTH);
         PATH_ALIASES.put("prompt.user", PROMPT);
         PATH_ALIASES.put("prompt.task", PROMPT);
         PATH_ALIASES.put("prompt.system", SYSTEM_PROMPT);
@@ -208,6 +232,20 @@ public final class ConfigKeys {
         LEAF_ALIASES.put("mainclass", OUTPUT_CLASS_NAME);
         LEAF_ALIASES.put("targetclass", OUTPUT_CLASS_NAME);
         LEAF_ALIASES.put("entryclass", OUTPUT_CLASS_NAME);
+        LEAF_ALIASES.put("multiplefiles", MULTI_FILE);
+        LEAF_ALIASES.put("multifileenabled", MULTI_FILE);
+        LEAF_ALIASES.put("allowmultiplefiles", MULTI_FILE);
+        LEAF_ALIASES.put("manyfiles", MULTI_FILE);
+        LEAF_ALIASES.put("filelimit", MAX_FILES);
+        LEAF_ALIASES.put("maxgeneratedfiles", MAX_FILES);
+        LEAF_ALIASES.put("subpackages", SUB_PACKAGES);
+        LEAF_ALIASES.put("subpackage", SUB_PACKAGES);
+        LEAF_ALIASES.put("allowsubpackage", SUB_PACKAGES);
+        LEAF_ALIASES.put("allowsplitpackage", SUB_PACKAGES);
+        LEAF_ALIASES.put("subpackagedepth", SUB_PACKAGE_DEPTH);
+        LEAF_ALIASES.put("maxsubpackagedepth", SUB_PACKAGE_DEPTH);
+        LEAF_ALIASES.put("packagelevels", SUB_PACKAGE_DEPTH);
+        LEAF_ALIASES.put("maxpackagelevels", SUB_PACKAGE_DEPTH);
         LEAF_ALIASES.put("failonerror", FAIL_ON_ERROR);
         LEAF_ALIASES.put("failbuildonerror", FAIL_ON_ERROR);
         LEAF_ALIASES.put("strict", FAIL_ON_ERROR);
